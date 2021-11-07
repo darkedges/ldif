@@ -35,6 +35,7 @@ type LDIF struct {
 	FoldWidth  int
 	Controls   bool
 	firstEntry bool
+	Callback   func(*Entry)
 }
 
 // The ParseError holds the error message and the line in the ldif
@@ -71,6 +72,13 @@ func ParseWithControls(str string) (l *LDIF, err error) {
 	l = &LDIF{Controls: true}
 	err = Unmarshal(buf, l)
 	return
+}
+
+// ParseWithCallback wraps Unmarshal to parse an LDIF from the
+// given io.Reader and calls cb for every entry found.
+func ParseWithCallback(r io.Reader, cb func(*Entry)) error {
+	l := &LDIF{Callback: cb}
+	return Unmarshal(r, l)
 }
 
 // Unmarshal parses the LDIF from the given io.Reader into the LDIF struct.
@@ -111,7 +119,15 @@ func Unmarshal(r io.Reader, l *LDIF) (err error) {
 				if perr != nil {
 					return &ParseError{Line: curLine, Message: perr.Error()}
 				}
-				l.Entries = append(l.Entries, entry)
+				if l.Callback != nil {
+					if entry != nil {
+						l.Callback(entry)
+					}
+				} else {
+					if entry != nil {
+						l.Entries = append(l.Entries, entry)
+					}
+				}
 				line = ""
 				lines = []string{}
 				if err == io.EOF {
@@ -307,12 +323,12 @@ func (l *LDIF) parseLine(line string) (attr, val string, err error) {
 	for len(line) > off && line[off] != ':' {
 		off++
 		if off >= len(line) {
-			err = fmt.Errorf("Missing : in line `%s`", line)
+			err = fmt.Errorf("missing : in line `%s`", line)
 			return
 		}
 	}
 	if off == len(line) {
-		err = fmt.Errorf("Missing : in the line `%s`", line)
+		err = fmt.Errorf("missing : in the line `%s`", line)
 		return
 	}
 
@@ -487,7 +503,7 @@ func validOID(oid string) error {
 		case c >= '0' && c <= '9':
 			lastDot = false
 		default:
-			return errors.New("Invalid character in OID")
+			return errors.New("invalid character in OID")
 		}
 	}
 	return nil
